@@ -102,148 +102,29 @@ const firebaseConfig = {
 };
 
 const fbApp = initializeApp(firebaseConfig);
-try{ getAnalytics(fbApp); } catch(e){ console.warn('analytics not available', e);}
+try { getAnalytics(fbApp); } catch(e){ console.warn('Analytics not available', e); }
+
 const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
-
-// ---------------- App logic ----------------
-const allowedGrades = ['H','Б','5','4','3','2','1'];
-const daySelect = document.getElementById('daySelect');
-const mainArea = document.getElementById('mainArea');
 const conn = document.getElementById('conn');
-const userLabel = document.getElementById('userLabel');
-const roleLabel = document.getElementById('roleLabel');
-let currentUser = null;
-let currentDay = new Date().toISOString().slice(0,10);
 
-// Theme toggle
-document.getElementById('themeToggle').onclick = ()=>{ 
-  const root = document.body; 
-  const cur = root.getAttribute('data-theme'); 
-  const next = cur==='dark' ? 'light' : 'dark'; 
-  root.setAttribute('data-theme', next); 
-  localStorage.setItem('theme', next); 
-};
-const storedTheme = localStorage.getItem('theme')||'dark'; document.body.setAttribute('data-theme', storedTheme);
-
-// ---------------- Registration ----------------
-document.getElementById('openRegister').onclick = ()=>{ document.getElementById('regModal').classList.remove('hidden'); };
-document.getElementById('regClose').onclick = ()=>{ document.getElementById('regModal').classList.add('hidden'); };
-const regSchool = document.getElementById('regSchool'); 
-const schoolCodeWrap = document.getElementById('schoolCodeWrap');
-regSchool.onchange = ()=>{ schoolCodeWrap.style.display = regSchool.value==='gimnazia_3'? 'block':'none'; }
-schoolCodeWrap.style.display='block';
-
-document.getElementById('regSubmit').onclick = async ()=>{
-  const role = document.getElementById('regRole').value;
-  const name = document.getElementById('regName').value.trim();
-  const school = regSchool.value;
-  const schoolCode = document.getElementById('regSchoolCode').value.trim();
-  const email = document.getElementById('regEmail').value.trim();
-  const pass = document.getElementById('regPass').value;
-  const cls = document.getElementById('regClass').value.trim();
-  if(!name||!email||!pass){ alert('Заполните имя, email и пароль'); return; }
-  if(school==='gimnazia_3' && schoolCode!=='gimnazia_3'){ alert('Неверный код школы'); return; }
-  try{
-    const userCred = await createUserWithEmailAndPassword(auth,email,pass);
-    const uid = userCred.user.uid;
-    await setDoc(doc(db,'users',uid), {name,role,school,cls,email,created:new Date().toISOString()});
-    alert('Регистрация успешна! Войдите через форму входа.');
-    document.getElementById('regModal').classList.add('hidden');
-  }catch(e){ alert('Ошибка регистрации: '+(e.message||e)); }
-};
-
-// ---------------- Login ----------------
-document.getElementById('openLogin').onclick = ()=>{ document.getElementById('loginModal').classList.remove('hidden'); };
-document.getElementById('loginClose').onclick = ()=>{ document.getElementById('loginModal').classList.add('hidden'); };
-document.getElementById('loginSubmit').onclick = async ()=>{
-  const email = document.getElementById('loginEmail').value.trim();
-  const pass = document.getElementById('loginPass').value;
-  try{ await signInWithEmailAndPassword(auth,email,pass); document.getElementById('loginModal').classList.add('hidden'); }
-  catch(e){ alert('Ошибка входа: '+(e.message||e)); }
-};
-
-// ---------------- Auth state ----------------
-onAuthStateChanged(auth, async user=>{
-  if(user){ currentUser = user; conn.className='small status-ok'; conn.innerText='Firebase: подключено'; await showMain(); }
-  else{ currentUser=null; conn.className='small status-err'; conn.innerText='Firebase: не подключено'; mainArea.classList.add('hidden'); }
-});
-
-// ---------------- Show main ----------------
-async function showMain(){
-  mainArea.classList.remove('hidden');
-  const docRef = doc(db,'users',currentUser.uid);
-  const docSnap = await getDoc(docRef);
-  if(docSnap.exists()){
-    const info = docSnap.data();
-    userLabel.innerText=info.name;
-    roleLabel.innerText=info.role==='teacher'? '(Учитель)':'(Ученик)';
+// Проверка подключения Firebase
+(async ()=>{
+  try {
+    await getDoc(doc(db,'__test__','ping'));
+    conn.className='small status-ok';
+    conn.innerText='Firebase: подключено';
+  } catch(e) {
+    conn.className='small status-err';
+    conn.innerText='Firebase: ошибка подключения';
+    console.error(e);
   }
-  renderTable();
-}
+})();
 
-// ---------------- Render table ----------------
-async function renderTable(){
-  const wrap = document.getElementById('tableWrap');
-  wrap.innerHTML = '';
-  const tbl = document.createElement('table');
-  const head = document.createElement('thead');
-  head.innerHTML='<tr><th>Имя</th><th>Класс</th><th>Опоздал</th><th>Время</th><th>Оценка</th><th></th></tr>';
-  tbl.appendChild(head);
-  const tbody = document.createElement('tbody');
-  // Загружаем данные из Firestore или локально
-  let students = JSON.parse(localStorage.getItem('students')||'[]');
-  students.forEach((s,i)=>{
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${s.name}</td><td>${s.cls||''}</td>
-      <td><input type="checkbox" data-i="${i}" class="late" ${s.late?'checked':''}></td>
-      <td>${s.time||''}</td>
-      <td><select data-i="${i}" class="grade">${allowedGrades.map(g=>`<option ${s.grade===g?'selected':''}>${g}</option>`).join('')}</select></td>
-      <td><button data-i="${i}" class="edit btn ghost">✏️</button> <button data-i="${i}" class="del btn ghost">🗑</button></td>`;
-    tbody.appendChild(tr);
-  });
-  tbl.appendChild(tbody);
-  wrap.appendChild(tbl);
+// ---------------- Остальной код (регистрация, вход, таблица) ----------------
 
-  tbody.onclick = e=>{
-    const idx = e.target.dataset.i;
-    if(e.target.classList.contains('del')){ students.splice(idx,1); saveStudents(students); renderTable(); }
-    if(e.target.classList.contains('edit')){
-      const s = students[idx];
-      const name = prompt('Имя',s.name)||s.name;
-      const cls = prompt('Класс',s.cls)||s.cls;
-      s.name=name; s.cls=cls; saveStudents(students); renderTable();
-    }
-    if(e.target.classList.contains('late')){
-      const s = students[idx];
-      s.late=e.target.checked;
-      s.time=s.late?new Date().toLocaleTimeString():'';
-      saveStudents(students); renderTable();
-    }
-  };
-  tbody.querySelectorAll('.grade').forEach(sel=>{
-    sel.onchange = ()=>{ students[sel.dataset.i].grade=sel.value; saveStudents(students);}
-  });
-}
-
-// ---------------- Buttons ----------------
-document.getElementById('logout').onclick = ()=>{ signOut(auth); localStorage.removeItem('students'); };
-document.getElementById('addStudent').onclick = ()=>{
-  const name = prompt('Имя ученика'); if(!name) return;
-  const cls = prompt('Класс'); 
-  const students = JSON.parse(localStorage.getItem('students')||'[]');
-  students.push({name,cls,late:false});
-  saveStudents(students); renderTable();
-};
-document.getElementById('createDay').onclick = ()=>{
-  const students = JSON.parse(localStorage.getItem('students')||'[]');
-  localStorage.setItem('students_'+currentDay,JSON.stringify(students));
-  localStorage.setItem('students',JSON.stringify([]));
-  currentDay = new Date().toISOString().slice(0,10);
-  renderTable(); alert('Создан новый день!');
-};
-
-function saveStudents(data){ localStorage.setItem('students',JSON.stringify(data)); }
+// Здесь вставь остальной рабочий JS код из предыдущего примера
+// регистрация, вход, отображение таблицы учеников, смена темы, добавление/редактирование/удаление учеников
 </script>
 </body>
 </html>
